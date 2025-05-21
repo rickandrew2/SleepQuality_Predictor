@@ -8,13 +8,13 @@ from sklearn.cluster import KMeans
 app = Flask(__name__)
 
 # Load models, scalers, and encoders for both tasks
-rf_quality = joblib.load('models/quality_group_rf.joblib')
+rf_quality = joblib.load('models/quality_group_model.joblib')
 scaler_q = joblib.load('models/quality_group_scaler.joblib')
-le_quality = joblib.load('models/quality_group_label_encoder.joblib')
+le_quality = joblib.load('models/quality_group_encoder.joblib')
 
-rf_disorder = joblib.load('models/sleep_disorder_rf.joblib')
-scaler_d = joblib.load('models/disorder_scaler.joblib')
-le_disorder = joblib.load('models/disorder_label_encoder.joblib')
+rf_disorder = joblib.load('models/sleep_disorder_model.joblib')
+scaler_d = joblib.load('models/sleep_disorder_scaler.joblib')
+le_disorder = joblib.load('models/sleep_disorder_encoder.joblib')
 
 gender_encoder = joblib.load('models/gender_encoder.joblib')
 bmi_encoder = joblib.load('models/bmi_encoder.joblib')
