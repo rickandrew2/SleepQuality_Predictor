@@ -202,12 +202,15 @@ def plot_precision_recall_curves(models, X_test, y_test, le):
     plt.show()
 
 def train_and_save_models(dataset_path=None):
+    # Create models directory if it doesn't exist
+    models_dir = os.path.join(os.path.dirname(__file__), 'models')
+    os.makedirs(models_dir, exist_ok=True)
+    
     data = load_kaggle_dataset(dataset_path)
     data = clean_dataset(data)
     data = engineer_features(data)
 
     # Group Quality of Sleep into Low, Medium, High
-    # Example: 3-5 = Low, 6-7 = Medium, 8-10 = High
     bins = [2, 5, 7, 10]
     labels = ['Low', 'Medium', 'High']
     data['Quality_Group'] = pd.cut(data['Quality of Sleep'], bins=bins, labels=labels, right=True, include_lowest=True)
@@ -217,36 +220,35 @@ def train_and_save_models(dataset_path=None):
     print('FEATURE COLS:', feature_cols)
     X = data[feature_cols]
 
-    # Save encoders for all categorical features
-    gender_encoder = LabelEncoder()
-    X['Gender'] = gender_encoder.fit_transform(X['Gender'])
-    joblib.dump(gender_encoder, os.path.join('models', 'gender_encoder.joblib'))
-    if 'Occupation' in X.columns:
-        occupation_encoder = LabelEncoder()
-        X['Occupation'] = occupation_encoder.fit_transform(X['Occupation'])
-        joblib.dump(occupation_encoder, os.path.join('models', 'occupation_encoder.joblib'))
-    bmi_encoder = LabelEncoder()
-    X['BMI Category'] = bmi_encoder.fit_transform(X['BMI Category'])
-    joblib.dump(bmi_encoder, os.path.join('models', 'bmi_encoder.joblib'))
-    agegroup_encoder = LabelEncoder()
-    X['Age_Group'] = agegroup_encoder.fit_transform(X['Age_Group'])
-    joblib.dump(agegroup_encoder, os.path.join('models', 'agegroup_encoder.joblib'))
-    activitylevel_encoder = LabelEncoder()
-    X['Activity_Level'] = activitylevel_encoder.fit_transform(X['Activity_Level'])
-    joblib.dump(activitylevel_encoder, os.path.join('models', 'activitylevel_encoder.joblib'))
-    heartratezone_encoder = LabelEncoder()
-    X['Heart_Rate_Zone'] = heartratezone_encoder.fit_transform(X['Heart_Rate_Zone'])
-    joblib.dump(heartratezone_encoder, os.path.join('models', 'heartratezone_encoder.joblib'))
+    # Save encoders for all categorical features with consistent naming
+    encoders = {
+        'gender': LabelEncoder(),
+        'bmi': LabelEncoder(),
+        'agegroup': LabelEncoder(),
+        'activitylevel': LabelEncoder(),
+        'heartratezone': LabelEncoder()
+    }
+    
+    # Transform and save encoders
+    X['Gender'] = encoders['gender'].fit_transform(X['Gender'])
+    X['BMI Category'] = encoders['bmi'].fit_transform(X['BMI Category'])
+    X['Age_Group'] = encoders['agegroup'].fit_transform(X['Age_Group'])
+    X['Activity_Level'] = encoders['activitylevel'].fit_transform(X['Activity_Level'])
+    X['Heart_Rate_Zone'] = encoders['heartratezone'].fit_transform(X['Heart_Rate_Zone'])
+    
+    # Save all encoders
+    for name, encoder in encoders.items():
+        joblib.dump(encoder, os.path.join(models_dir, f'{name}_encoder.joblib'))
 
-    # Encode categorical variables in X (again, to ensure all are numeric)
+    # Encode remaining categorical variables
     for col in X.select_dtypes(include=['object', 'category']).columns:
         X[col] = LabelEncoder().fit_transform(X[col])
 
-    # --- Model 1: Predict Quality of Sleep Group (classification) ---
+    # --- Model 1: Predict Quality of Sleep Group ---
     y_group = data['Quality_Group']
     le_group = LabelEncoder()
     y_group_enc = le_group.fit_transform(y_group)
-    joblib.dump(le_group, os.path.join('models', 'quality_group_label_encoder.joblib'))
+    joblib.dump(le_group, os.path.join(models_dir, 'quality_group_encoder.joblib'))
 
     X_train_g, X_test_g, y_train_g, y_test_g = train_test_split(X, y_group_enc, test_size=0.2, random_state=42, stratify=y_group_enc)
     scaler_g = StandardScaler()
@@ -267,10 +269,11 @@ def train_and_save_models(dataset_path=None):
     print(f"F1 Score: {f1_score(y_test_g, y_pred_g, average='weighted'):.3f}")
     print(classification_report(y_test_g, y_pred_g, target_names=le_group.classes_))
 
-    joblib.dump(grid_g.best_estimator_, os.path.join('models', 'quality_group_rf.joblib'))
-    joblib.dump(scaler_g, os.path.join('models', 'quality_group_scaler.joblib'))
+    # Save quality group model and scaler
+    joblib.dump(grid_g.best_estimator_, os.path.join(models_dir, 'quality_group_model.joblib'))
+    joblib.dump(scaler_g, os.path.join(models_dir, 'quality_group_scaler.joblib'))
 
-    # --- Model 2: Predict Sleep Disorder (classification, with class_weight and SMOTE tweaks) ---
+    # --- Model 2: Predict Sleep Disorder ---
     y_disorder = data['Sleep Disorder'].fillna('None')
     le_disorder = LabelEncoder()
     y_disorder_enc = le_disorder.fit_transform(y_disorder)
@@ -294,9 +297,10 @@ def train_and_save_models(dataset_path=None):
     print(f"F1 Score: {f1_score(y_test_d, y_pred_d, average='weighted'):.3f}")
     print(classification_report(y_test_d, y_pred_d, target_names=le_disorder.classes_))
 
-    joblib.dump(grid_d.best_estimator_, os.path.join('models', 'sleep_disorder_rf.joblib'))
-    joblib.dump(scaler_d, os.path.join('models', 'disorder_scaler.joblib'))
-    joblib.dump(le_disorder, os.path.join('models', 'disorder_label_encoder.joblib'))
+    # Save sleep disorder model and scaler
+    joblib.dump(grid_d.best_estimator_, os.path.join(models_dir, 'sleep_disorder_model.joblib'))
+    joblib.dump(scaler_d, os.path.join(models_dir, 'sleep_disorder_scaler.joblib'))
+    joblib.dump(le_disorder, os.path.join(models_dir, 'sleep_disorder_encoder.joblib'))
 
     # --- Feature Importance Plot for Quality Group Model ---
     importances = grid_g.best_estimator_.feature_importances_

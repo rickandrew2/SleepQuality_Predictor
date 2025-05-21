@@ -72,9 +72,7 @@ def predict():
         activity_level_encoded = activitylevel_encoder.transform([activity_level])[0]
 
         # Heart_Rate_Zone
-        if heart_rate < 60:
-            heart_rate_zone = 'Very Low'
-        elif heart_rate < 70:
+        if heart_rate < 70:
             heart_rate_zone = 'Low'
         elif heart_rate < 80:
             heart_rate_zone = 'Normal'

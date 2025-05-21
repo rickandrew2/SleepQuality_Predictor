@@ -135,20 +135,20 @@
         }
 
         .btn-predict {
-            background-color: var(--primary-color);
-            color: white;
+            background-color: #2196f3;
+            color: #fff;
             padding: 12px 30px;
             border-radius: 10px;
             font-weight: 600;
             transition: all 0.3s ease;
             border: none;
             font-size: 1.1rem;
+            box-shadow: 0 2px 8px rgba(33,150,243,0.10);
         }
 
         .btn-predict:hover {
-            background-color: #357abd;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(74, 144, 226, 0.3);
+            background-color: #1769aa;
+            color: #fff;
         }
 
         .result {
@@ -223,18 +223,103 @@
         }
 
         .section-title {
-            color: var(--secondary-color);
-            font-size: 1.2rem;
-            font-weight: 600;
-            margin-bottom: 15px;
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #fff;
+            background: #2196f3;
+            padding: 12px 32px;
+            border-radius: 999px;
+            margin-bottom: 18px;
+            box-shadow: 0 2px 8px rgba(33,150,243,0.10);
+            border: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Reduce vertical spacing */
+        .form-group { margin-bottom: 18px; }
+        .form-section { margin-bottom: 14px; }
+        /* Animate result fade/scale-in */
+        .result { animation: popIn 0.7s cubic-bezier(.68,-0.55,.27,1.55); display:none; }
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            80% { transform: scale(1.05); opacity: 1; }
+            100% { transform: scale(1); }
+        }
+        /* Animate input focus */
+        .form-control:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 0.2rem rgba(74, 144, 226, 0.25), 0 0 8px #4a90e2;
+        }
+        /* Sticky Predict button on mobile */
+        @media (max-width: 600px) {
+            .sticky-mobile { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; z-index: 100; box-shadow: 0 -2px 10px rgba(0,0,0,0.07); padding: 10px 0 10px 0; margin: 0 !important; }
+            .btn-predict { width: 90%; font-size: 1.2rem; }
+        }
+        /* Progress circle container */
+        .progress-circle-container { position: relative; width: 100px; height: 100px; margin: 0 auto; }
+        /* Remove dark mode styles */
+        body { background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); min-height: 100vh; padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .result-card {
+            background: #fff;
+            border-radius: 18px;
+            box-shadow: 0 6px 32px rgba(44,62,80,0.10), 0 1.5px 6px rgba(44,62,80,0.08);
+            max-width: 420px;
+            margin: 0 auto;
+            padding: 32px 28px 24px 28px;
+            position: relative;
+            border: none;
+        }
+        .result-accent {
+            height: 7px;
+            width: 100%;
+            border-radius: 8px 8px 0 0;
+            position: absolute;
+            left: 0; top: 0;
+            background: #4a90e2;
+        }
+        .result-accent.high { background: linear-gradient(90deg,#27ae60 60%,#4a90e2 100%); }
+        .result-accent.medium { background: linear-gradient(90deg,#f39c12 60%,#4a90e2 100%); }
+        .result-accent.low { background: linear-gradient(90deg,#e74c3c 60%,#4a90e2 100%); }
+        .result-title { font-size: 2rem; font-weight: 800; color: #2c3e50; margin-bottom: 0.5rem; }
+        .result-recommendations { font-size: 1.1rem; color: #444; }
+        .quality-icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+        .disorder-alert {
+            border-radius: 10px;
+            padding: 14px 18px;
+            margin: 18px 0 18px 0;
+            font-size: 1.08rem;
+            font-weight: 500;
+            text-align: left;
+            display: inline-block;
+            max-width: 95%;
+        }
+        .disorder-alert.sleep-apnea {
+            background: #ffeaea;
+            color: #c0392b;
+            border: 1.5px solid #e74c3c;
+        }
+        .disorder-alert.insomnia {
+            background: #fffbe6;
+            color: #b8860b;
+            border: 1.5px solid #f39c12;
+        }
+        .disorder-alert.neutral {
+            background: #f0f0f0;
+            color: #333;
+            border: 1.5px solid #bbb;
         }
     </style>
 </head>
 <body>
+
     <div class="container">
-        <h1 class="app-title">ZzzCheck</h1>
-        <p class="app-subtitle">Smart Sleep Quality Predictor with Lifestyle Insights</p>
-        
+        <div class="text-center mb-3">
+            <img src="https://img.icons8.com/fluency/96/sleeping.png" alt="ZzzCheck Logo" style="height:64px;" aria-label="ZzzCheck logo mascot"/>
+            <h1 class="app-title">ZzzCheck</h1>
+            <p class="app-subtitle">Sleep Quality & Health Analysis Tool</p>
+        </div>
         <div class="quality-guide">
             <h4 class="guide-title"><i class="fas fa-info-circle"></i> Sleep Quality Guide</h4>
             <div class="guide-container">
@@ -253,7 +338,7 @@
             </div>
         </div>
         
-        <form id="predictionForm">
+        <form id="predictionForm" autocomplete="off" aria-label="Sleep Quality Prediction Form">
             <div class="row">
                 <div class="col-md-6">
                     <div class="form-section">
@@ -261,21 +346,21 @@
                         <div class="form-group">
                             <label class="form-label" for="sleep_duration">Sleep Duration (hours)</label>
                             <div class="input-group">
-                                <input type="number" class="form-control" id="sleep_duration" name="sleep_duration" step="0.1" required>
+                                <input type="number" class="form-control" id="sleep_duration" name="sleep_duration" step="0.1" min="0.5" max="15" required>
                                 <span class="input-group-text"><i class="fas fa-clock"></i></span>
                             </div>
                         </div>
                         <div class="form-group">
                             <label class="form-label" for="physical_activity">Physical Activity (minutes/day)</label>
                             <div class="input-group">
-                                <input type="number" class="form-control" id="physical_activity" name="physical_activity" required>
+                                <input type="number" class="form-control" id="physical_activity" name="physical_activity" min="0" max="300" required>
                                 <span class="input-group-text"><i class="fas fa-running"></i></span>
                             </div>
                         </div>
                         <div class="form-group">
                             <label class="form-label" for="daily_steps">Daily Steps</label>
                             <div class="input-group">
-                                <input type="number" class="form-control" id="daily_steps" name="daily_steps" required>
+                                <input type="number" class="form-control" id="daily_steps" name="daily_steps" min="0" max="40000" required>
                                 <span class="input-group-text"><i class="fas fa-shoe-prints"></i></span>
                             </div>
                         </div>
@@ -287,7 +372,7 @@
                         <div class="form-group">
                             <label class="form-label" for="age">Age</label>
                             <div class="input-group">
-                                <input type="number" class="form-control" id="age" name="age" required>
+                                <input type="number" class="form-control" id="age" name="age" min="1" max="120" required>
                                 <span class="input-group-text"><i class="fas fa-birthday-cake"></i></span>
                             </div>
                         </div>
@@ -305,7 +390,6 @@
                             <label class="form-label" for="bmi_category">BMI Category</label>
                             <div class="input-group">
                                 <select class="form-control" id="bmi_category" name="bmi_category" required>
-                                    <option value="Underweight">Underweight</option>
                                     <option value="Normal">Normal</option>
                                     <option value="Overweight">Overweight</option>
                                     <option value="Obese">Obese</option>
@@ -334,7 +418,7 @@
                                 <div class="form-group">
                                     <label class="form-label" for="heart_rate">Heart Rate (bpm)</label>
                                     <div class="input-group">
-                                        <input type="number" class="form-control" id="heart_rate" name="heart_rate" required>
+                                        <input type="number" class="form-control" id="heart_rate" name="heart_rate" min="30" max="220" required>
                                         <span class="input-group-text"><i class="fas fa-heartbeat"></i></span>
                                     </div>
                                 </div>
@@ -343,115 +427,136 @@
                     </div>
                 </div>
             </div>
-            <div class="text-center mt-4">
-                <button type="submit" class="btn btn-predict">
-                    <i class="fas fa-moon"></i> Predict Sleep Quality
+            <div class="text-center mt-4 sticky-mobile">
+                <button type="submit" class="btn btn-predict" id="predictBtn" aria-label="Predict Sleep Quality">
+                    <span id="predictBtnText"><i class="fas fa-moon"></i> Predict Sleep Quality</span>
+                    <span id="predictBtnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
                 </button>
             </div>
         </form>
         
-        <div id="result" class="result">
-            <div class="text-center">
-                <div class="quality-icon" id="quality-icon"></div>
-                <h3 class="result-title" id="quality"></h3>
-                <div class="quality-info mt-2" style="font-size:1rem;color:#666;">
-                </div>
-                <p class="result-disorder fw-bold" id="disorder" style="font-size:1.2rem;"></p>
-                <div class="disorder-advice mt-2" id="disorder-advice" style="font-size:1rem;"></div>
-                <p class="result-recommendations" id="recommendations"></p>
-                <div class="lifestyle-insights mt-4 p-3" style="background:#f0f7ff;border-radius:12px;border:1px solid #b3d8fd;max-width:500px;margin:20px auto 0 auto;">
+        <!-- Result Modal -->
+        <div class="modal fade" id="resultModal" tabindex="-1" aria-labelledby="resultModalLabel" aria-hidden="true">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content result-card">
+              <div class="result-accent" id="result-accent"></div>
+              <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title w-100 text-center" id="resultModalLabel"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body text-center pt-0">
+                <div class="quality-icon mb-2" id="modal-quality-icon"></div>
+                <h2 class="result-title mb-1" id="modal-quality"></h2>
+                <div class="fw-bold mb-1" id="modal-disorder" style="font-size:1.1rem;"></div>
+                <div id="modal-disorder-alert" style="display:none;"></div>
+                <div class="result-recommendations mb-2" id="modal-recommendations" style="font-size:1.1rem;"></div>
+                <div class="lifestyle-insights p-3 mt-3" style="background:#f0f7ff;border-radius:12px;border:1px solid #b3d8fd;max-width:500px;margin:0 auto;">
                   <h5 style="color:#2c3e50;"><i class="fas fa-lightbulb"></i> Lifestyle Insights</h5>
-                  <div id="lifestyle-insights-content" style="font-size:1rem;color:#333;">
-                  </div>
+                  <div id="modal-lifestyle-insights-content" style="font-size:1rem;color:#333;"></div>
                 </div>
+              </div>
             </div>
+          </div>
         </div>
     </div>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         $(document).ready(function() {
+            // AJAX prediction
             $('#predictionForm').on('submit', function(e) {
-                e.preventDefault();
+                e.preventDefault(); // Prevent form submission
                 
+                // Show loading state
+                $('#predictBtnText').addClass('d-none');
+                $('#predictBtnSpinner').removeClass('d-none');
+                
+                // Validate all fields
+                let sleep = parseFloat($('#sleep_duration').val());
+                let activity = parseFloat($('#physical_activity').val());
+                let steps = parseFloat($('#daily_steps').val());
+                let age = parseFloat($('#age').val());
+                let stress = parseFloat($('#stress_level').val());
+                let hr = parseFloat($('#heart_rate').val());
+                let errors = [];
+                if (isNaN(sleep) || sleep < 0.5 || sleep > 15) errors.push('Sleep Duration must be between 0.5 and 15 hours.');
+                if (isNaN(activity) || activity < 0 || activity > 300) errors.push('Physical Activity must be between 0 and 300 minutes.');
+                if (isNaN(steps) || steps < 0 || steps > 10000) errors.push('Daily Steps must be between 0 and 40,000.');
+                if (isNaN(age) || age < 1 || age > 120) errors.push('Age must be between 1 and 120.');
+                if (isNaN(stress) || stress < 1 || stress > 10) errors.push('Stress Level must be between 1 and 10.');
+                if (isNaN(hr) || hr < 30 || hr > 220) errors.push('Heart Rate must be between 30 and 220 bpm.');
+                if (errors.length > 0) {
+                    alert(errors.join('\n'));
+                    $('#predictBtnText').removeClass('d-none');
+                    $('#predictBtnSpinner').addClass('d-none');
+                    return;
+                }
                 $.ajax({
                     url: '/predict',
                     method: 'POST',
                     data: $(this).serialize(),
                     success: function(response) {
-                        $('#result').removeClass('excellent good fair poor').addClass(response.quality.toLowerCase());
-                        
+                        // Set accent bar color
+                        let q = response.quality.toLowerCase();
+                        $('#result-accent').removeClass('high medium low');
+                        if (q === 'high') $('#result-accent').addClass('high');
+                        else if (q === 'medium') $('#result-accent').addClass('medium');
+                        else if (q === 'low') $('#result-accent').addClass('low');
                         // Set quality icon
                         let icon = '';
-                        switch(response.quality.toLowerCase()) {
-                            case 'excellent':
-                            case 'outstanding':
-                                icon = '<i class="fas fa-star" style="color: #28a745;"></i>';
-                                break;
-                            case 'very good':
-                            case 'good':
-                                icon = '<i class="fas fa-thumbs-up" style="color: #17a2b8;"></i>';
-                                break;
-                            case 'fair':
-                                icon = '<i class="fas fa-meh" style="color: #ffc107;"></i>';
-                                break;
-                            case 'poor':
-                                icon = '<i class="fas fa-frown" style="color: #dc3545;"></i>';
-                                break;
+                        switch(q) {
+                            case 'high': icon = '<span style="font-size:2.5rem;">😴</span>'; break;
+                            case 'medium': icon = '<span style="font-size:2.5rem;">😌</span>'; break;
+                            case 'low': icon = '<span style="font-size:2.5rem;">😟</span>'; break;
+                            default: icon = '<i class="fas fa-moon"></i>';
                         }
-                        
-                        $('#quality-icon').html(icon);
-                        $('#quality').text('Sleep Quality: ' + response.quality);
-                        
-                        // Set sleep disorder result and advice
-                        let disorderText = '';
-                        let disorderAdvice = '';
-                        if (response.disorder.toLowerCase() === 'none') {
-                            disorderText = 'Predicted Sleep Disorder: None';
-                            $('#disorder').css('color', '#27ae60'); // green
-                            disorderAdvice = '';
-                        } else if (response.disorder.toLowerCase() === 'insomnia') {
-                            disorderText = 'Predicted Sleep Disorder: Insomnia';
-                            $('#disorder').css('color', '#e74c3c'); // red
-                            disorderAdvice = 'Advice: Try to maintain a regular sleep schedule, avoid caffeine late in the day, and create a relaxing bedtime routine.';
-                        } else if (response.disorder.toLowerCase() === 'sleep apnea') {
-                            disorderText = 'Predicted Sleep Disorder: Sleep Apnea';
-                            $('#disorder').css('color', '#e74c3c'); // red
-                            disorderAdvice = 'Advice: Consider consulting a healthcare provider. Sleep apnea can be serious and may require medical attention.';
+                        $('#modal-quality-icon').html(icon);
+                        $('#modal-quality').text('Sleep Quality: ' + response.quality);
+                        // Show disorder name always
+                        let disorder = response.disorder ? response.disorder : '';
+                        $('#modal-disorder').text('Predicted Sleep Disorder: ' + disorder);
+                        // Show disorder alert box if needed
+                        let disorderAlert = '';
+                        if (disorder.toLowerCase() === 'insomnia') {
+                            disorderAlert = `<div class='disorder-alert insomnia'><b>Predicted Sleep Disorder: Insomnia</b><br>Advice: Try to maintain a regular sleep schedule, avoid caffeine late in the day, and create a relaxing bedtime routine.</div>`;
+                        } else if (disorder.toLowerCase() === 'sleep apnea') {
+                            disorderAlert = `<div class='disorder-alert sleep-apnea'><b>Predicted Sleep Disorder: Sleep Apnea</b><br>Advice: Consider consulting a healthcare provider. Sleep apnea can be serious and may require medical attention.</div>`;
+                        } else if (disorder && disorder.toLowerCase() !== 'none') {
+                            disorderAlert = `<div class='disorder-alert neutral'><b>Predicted Sleep Disorder: ${disorder}</b></div>`;
+                        }
+                        if (disorderAlert) {
+                            $('#modal-disorder-alert').html(disorderAlert).show();
                         } else {
-                            disorderText = 'Predicted Sleep Disorder: ' + response.disorder;
-                            $('#disorder').css('color', '#333');
-                            disorderAdvice = '';
+                            $('#modal-disorder-alert').hide();
                         }
-                        $('#disorder').text(disorderText);
-                        $('#disorder-advice').text(disorderAdvice);
-                        
-                        // Smooth scroll to result
-                        $('html, body').animate({
-                            scrollTop: $('#result').offset().top - 100
-                        }, 500);
-                        
-                        $('#result').fadeIn();
-
-                        // Set lifestyle insights content based on the quality
+                        // Recommendations (single paragraph)
+                        let rec = response.recommendations;
+                        if (q === 'low') rec += ' Try to get at least 7 hours of sleep and keep stress below 5.';
+                        if (q === 'medium') rec += ' Consistency is key!';
+                        $('#modal-recommendations').text(rec);
+                        // Lifestyle insights
                         let insights = '';
-                        switch(response.quality.toLowerCase()) {
-                            case 'high':
-                                insights = 'You are doing great! Keep maintaining your healthy sleep habits, stay active, and manage stress for continued excellent sleep.';
-                                break;
-                            case 'medium':
-                                insights = 'Your sleep quality is good, but there is room for improvement. Try to keep a consistent bedtime, avoid screens before bed, and manage your daily stress.';
-                                break;
-                            case 'low':
-                                insights = 'Your sleep quality needs attention. Consider increasing your sleep duration, reducing stress, and engaging in regular physical activity. Small changes can make a big difference!';
-                                break;
-                            default:
-                                insights = 'Want to improve your sleep? Try to keep a consistent bedtime, stay active during the day, and manage your stress.';
+                        switch(q) {
+                            case 'high': insights = 'You are doing great! Keep maintaining your healthy sleep habits, stay active, and manage stress for continued excellent sleep.'; break;
+                            case 'medium': insights = 'Your sleep quality is good, but there is room for improvement. Try to keep a consistent bedtime, avoid screens before bed, and manage your daily stress.'; break;
+                            case 'low': insights = 'Your sleep quality needs attention. Consider increasing your sleep duration, reducing stress, and engaging in regular physical activity. Small changes can make a big difference!'; break;
+                            default: insights = 'Want to improve your sleep? Try to keep a consistent bedtime, stay active during the day, and manage your stress.';
                         }
-                        $('#lifestyle-insights-content').text(insights);
+                        $('#modal-lifestyle-insights-content').text(insights);
+                        // Show modal
+                        var resultModal = document.getElementById('resultModal');
+                        var modal = new bootstrap.Modal(resultModal);
+                        modal.show();
+                        // Reset Predict button
+                        $('#predictBtnText').removeClass('d-none');
+                        $('#predictBtnSpinner').addClass('d-none');
                     },
                     error: function(xhr) {
                         alert('Error: ' + xhr.responseJSON.error);
+                        $('#predictBtnText').removeClass('d-none');
+                        $('#predictBtnSpinner').addClass('d-none');
                     }
                 });
             });

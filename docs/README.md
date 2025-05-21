@@ -111,6 +111,31 @@ python src/app.py
 - Predicts both sleep quality (as a category) and sleep disorder in a single app
 - UI dynamically updates lifestyle insights based on your predicted sleep quality
 
+## Model Files
+
+The application uses several trained models and encoders stored in the `src/models` directory:
+
+### Quality Group Prediction Models
+- `quality_group_model.joblib`: The trained Random Forest model that predicts sleep quality groups (Low/Medium/High)
+- `quality_group_scaler.joblib`: StandardScaler that normalizes the input features for quality prediction
+- `quality_group_encoder.joblib`: LabelEncoder that converts quality group labels (Low/Medium/High) to numbers
+
+### Sleep Disorder Prediction Models
+- `sleep_disorder_model.joblib`: The trained Random Forest model that predicts sleep disorders (None/Insomnia/Sleep Apnea)
+- `sleep_disorder_scaler.joblib`: StandardScaler that normalizes the input features for disorder prediction
+- `sleep_disorder_encoder.joblib`: LabelEncoder that converts sleep disorder labels to numbers
+
+### Feature Encoders
+- `gender_encoder.joblib`: Converts gender (Male/Female) to numbers
+- `bmi_encoder.joblib`: Converts BMI categories to numbers
+- `agegroup_encoder.joblib`: Converts age groups to numbers
+- `activitylevel_encoder.joblib`: Converts activity levels to numbers
+- `heartratezone_encoder.joblib`: Converts heart rate zones to numbers
+
+### Cluster Models
+- `cluster_kmeans.joblib`: The trained KMeans model that groups similar sleep behaviors
+- `cluster_scaler.joblib`: StandardScaler for normalizing features before clustering
+
 ## Note
 
 This application uses machine learning models trained on real sleep health and lifestyle data. The models take into account various factors that can affect sleep quality and sleep disorders, providing a comprehensive assessment and actionable lifestyle insights. The code and app have been updated to ensure robust, realistic, and interpretable predictions for both sleep quality and sleep disorder. 
