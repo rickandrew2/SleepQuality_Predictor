@@ -62,13 +62,14 @@ def predict():
         # Scale features
         features_scaled = scaler.transform(features)
         
-        # Make prediction (classifier)
+        # Make prediction using the model
         predicted_class = int(model.predict(features_scaled)[0])
         # Compute continuous score using predict_proba
         class_probs = model.predict_proba(features_scaled)[0]
         class_labels = model.classes_
         score = float(np.dot(class_probs, class_labels))
         score_rounded = round(score, 2)
+        
         # Map class to quality label
         quality_map = {
             4: "Poor",
@@ -78,9 +79,11 @@ def predict():
             8: "Excellent",
             9: "Outstanding"
         }
+        
         # Use the closest class for quality and recommendations
         closest_class = int(round(score))
         quality = quality_map.get(closest_class, "Unknown")
+        
         # Recommendations based on score
         recommendations_map = {
             4: "Try to increase your sleep duration and reduce stress. Consider more physical activity.",
@@ -91,6 +94,7 @@ def predict():
             9: "Outstanding! You have excellent sleep hygiene."
         }
         recommendations = recommendations_map.get(closest_class, "Keep monitoring your sleep and health habits.")
+        
         return jsonify({
             'prediction': predicted_class,
             'quality': quality,

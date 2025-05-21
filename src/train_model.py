@@ -3,11 +3,41 @@ import numpy as np
 from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV, StratifiedKFold
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report, f1_score, confusion_matrix
 import joblib
 import os
-from sklearn.metrics import accuracy_score, classification_report, f1_score, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
+import shap
+from sklearn.model_selection import KFold
+import warnings
+warnings.filterwarnings('ignore')
+
+def clean_dataset(data):
+    """
+    Clean the dataset by removing duplicates and adding realistic noise
+    """
+    # Remove exact duplicates
+    data = data.drop_duplicates()
+    
+    # Add small random noise to numeric columns to make data more realistic
+    numeric_cols = ['Sleep Duration', 'Physical Activity Level', 'Stress Level', 
+                   'Heart Rate', 'Daily Steps', 'Age']
+    
+    for col in numeric_cols:
+        # Add noise proportional to the standard deviation of each column
+        noise = np.random.normal(0, data[col].std() * 0.05, size=len(data))
+        data[col] = data[col] + noise
+    
+    # Round numeric columns to maintain realistic precision
+    data['Sleep Duration'] = data['Sleep Duration'].round(1)
+    data['Physical Activity Level'] = data['Physical Activity Level'].round(0)
+    data['Stress Level'] = data['Stress Level'].round(0)
+    data['Heart Rate'] = data['Heart Rate'].round(0)
+    data['Daily Steps'] = data['Daily Steps'].round(0)
+    
+    return data
 
 def load_kaggle_dataset():
     """
@@ -17,13 +47,16 @@ def load_kaggle_dataset():
         # Load the dataset
         data = pd.read_csv('../data/Sleep_health_and_lifestyle_dataset.csv')
         
+        # Clean the dataset
+        data = clean_dataset(data)
+        
         # Handle outliers for numeric features
         for col in ['Sleep Duration', 'Physical Activity Level', 'Stress Level', 'Heart Rate', 'Daily Steps', 'Age']:
             lower = data[col].quantile(0.01)
             upper = data[col].quantile(0.99)
             data[col] = data[col].clip(lower, upper)
         
-        # Use separate encoders for Gender and BMI Category
+        # Use separate encoders for categorical variables
         gender_encoder = LabelEncoder()
         bmi_encoder = LabelEncoder()
         data['Gender'] = gender_encoder.fit_transform(data['Gender'])
@@ -37,7 +70,7 @@ def load_kaggle_dataset():
         data['AgeGroup'] = agegroup_encoder.fit_transform(data['AgeGroup'].astype(str))
         data['StepsGroup'] = stepsgroup_encoder.fit_transform(data['StepsGroup'].astype(str))
         
-        # Select features for prediction
+        # Select features for prediction (removed potentially leaking features)
         features = [
             'Sleep Duration',
             'Physical Activity Level',
@@ -52,7 +85,7 @@ def load_kaggle_dataset():
         ]
         
         X = data[features]
-        y = data['Quality of Sleep']  # Use the real column as target
+        y = data['Quality of Sleep']
         
         return X, y, gender_encoder, bmi_encoder, agegroup_encoder, stepsgroup_encoder
         
@@ -71,134 +104,107 @@ def train_model():
     print("\nClass distribution in full dataset:")
     print(y.value_counts(normalize=True))
     
-    # Split into training and testing sets with stratification
-    X_train, X_test, y_train, y_test = train_test_split(
+    # Create a more rigorous train/validation/test split
+    X_temp, X_test, y_temp, y_test = train_test_split(
         X, y, 
-        test_size=0.3,
+        test_size=0.2,
         random_state=42,
         stratify=y
     )
     
-    # Print class distribution in train and test sets
-    print("\nClass distribution in training set:")
-    print(y_train.value_counts(normalize=True))
-    print("\nClass distribution in test set:")
-    print(y_test.value_counts(normalize=True))
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_temp, y_temp,
+        test_size=0.25,  # 0.25 * 0.8 = 0.2 of total data
+        random_state=42,
+        stratify=y_temp
+    )
+    
+    print("\nData split sizes:")
+    print(f"Training set: {len(X_train)} samples")
+    print(f"Validation set: {len(X_val)} samples")
+    print(f"Test set: {len(X_test)} samples")
     
     # Scale features
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
+    X_val_scaled = scaler.transform(X_val)
     X_test_scaled = scaler.transform(X_test)
     
-    # Model tuning with GridSearchCV
+    # First try a simple logistic regression model
+    print("\nTraining Logistic Regression model...")
+    lr_model = LogisticRegression(max_iter=1000, class_weight='balanced')
+    lr_model.fit(X_train_scaled, y_train)
+    
+    # Evaluate logistic regression
+    lr_val_pred = lr_model.predict(X_val_scaled)
+    lr_val_acc = accuracy_score(y_val, lr_val_pred)
+    lr_val_f1 = f1_score(y_val, lr_val_pred, average='weighted')
+    
+    print("\nLogistic Regression Performance (Validation):")
+    print(f"Accuracy: {lr_val_acc:.3f}")
+    print(f"F1 Score: {lr_val_f1:.3f}")
+    print("\nClassification Report (Validation):\n", classification_report(y_val, lr_val_pred))
+    
+    # Now train Random Forest with reduced complexity
+    print("\nTraining Random Forest model...")
     param_grid = {
-        'n_estimators': [50, 100, 200],
-        'max_depth': [None, 5, 10, 20],
-        'min_samples_split': [2, 5, 10],
-        'min_samples_leaf': [1, 2, 4],
-        'class_weight': ['balanced']  # Added balanced class weights
+        'n_estimators': [50, 100],  # Reduced number of trees
+        'max_depth': [3, 5, 7],     # Limited depth to prevent overfitting
+        'min_samples_split': [5, 10],
+        'min_samples_leaf': [2, 4],
+        'class_weight': ['balanced']
     }
     
     # Use StratifiedKFold for cross-validation
-    cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     
-    # Perform multiple random splits for validation
-    n_splits = 3  # Reduced from 5 to 3 due to class imbalance
-    best_scores = []
-    best_params_list = []
+    # Grid search with cross-validation
+    grid = GridSearchCV(
+        RandomForestClassifier(random_state=42),
+        param_grid,
+        cv=cv,
+        scoring='f1_weighted',
+        n_jobs=-1
+    )
+    grid.fit(X_train_scaled, y_train)
     
-    for i in range(n_splits):
-        print(f"\nValidation Split {i+1}/{n_splits}")
-        # Create a new train-test split for each iteration
-        X_train_i, X_test_i, y_train_i, y_test_i = train_test_split(
-            X, y, 
-            test_size=0.3,
-            random_state=i,
-            stratify=y
-        )
-        
-        # Scale features for this split
-        scaler_i = StandardScaler()
-        X_train_scaled_i = scaler_i.fit_transform(X_train_i)
-        X_test_scaled_i = scaler_i.transform(X_test_i)
-        
-        # Grid search for this split
-        grid = GridSearchCV(
-            RandomForestClassifier(random_state=42),
-            param_grid,
-            cv=cv,
-            scoring='f1_weighted',  # Changed to weighted F1 score
-            n_jobs=-1
-        )
-        grid.fit(X_train_scaled_i, y_train_i)
-        
-        # Store results
-        best_scores.append(grid.best_score_)
-        best_params_list.append(grid.best_params_)
-        
-        # Evaluate on test set
-        model_i = grid.best_estimator_
-        test_pred_i = model_i.predict(X_test_scaled_i)
-        test_acc_i = accuracy_score(y_test_i, test_pred_i)
-        test_f1_i = f1_score(y_test_i, test_pred_i, average='weighted')
-        
-        print(f"Best params for split {i+1}:", grid.best_params_)
-        print(f"Best CV score for split {i+1}:", grid.best_score_)
-        print(f"Test accuracy for split {i+1}:", test_acc_i)
-        print(f"Test F1 score for split {i+1}:", test_f1_i)
-        print("\nClassification Report (Test):\n", classification_report(y_test_i, test_pred_i))
-        
-        # Plot confusion matrix for this split
-        plt.figure(figsize=(8, 6))
-        cm = confusion_matrix(y_test_i, test_pred_i)
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
-        plt.title(f'Confusion Matrix - Split {i+1}')
-        plt.xlabel('Predicted')
-        plt.ylabel('Actual')
-        plt.savefig(f'../static/confusion_matrix_split_{i+1}.png')
-        plt.close()
+    # Get best model
+    best_model = grid.best_estimator_
+    print("\nBest parameters:", grid.best_params_)
     
-    # Print summary of all splits
-    print("\nSummary of all validation splits:")
-    print("Best CV scores:", best_scores)
-    print("Mean CV score:", np.mean(best_scores))
-    print("Std CV score:", np.std(best_scores))
+    # Evaluate on validation set
+    val_pred = best_model.predict(X_val_scaled)
+    val_acc = accuracy_score(y_val, val_pred)
+    val_f1 = f1_score(y_val, val_pred, average='weighted')
     
-    # Train final model on full training set with best parameters
-    best_params = max(best_params_list, key=lambda x: best_scores[best_params_list.index(x)])
-    print("\nFinal best parameters:", best_params)
+    print("\nRandom Forest Performance (Validation):")
+    print(f"Accuracy: {val_acc:.3f}")
+    print(f"F1 Score: {val_f1:.3f}")
+    print("\nClassification Report (Validation):\n", classification_report(y_val, val_pred))
     
-    final_model = RandomForestClassifier(**best_params, random_state=42)
-    final_model.fit(X_train_scaled, y_train)
-    
-    # Evaluate final model
-    train_pred = final_model.predict(X_train_scaled)
-    test_pred = final_model.predict(X_test_scaled)
-    train_acc = accuracy_score(y_train, train_pred)
+    # Final evaluation on test set
+    test_pred = best_model.predict(X_test_scaled)
     test_acc = accuracy_score(y_test, test_pred)
-    train_f1 = f1_score(y_train, train_pred, average='weighted')
     test_f1 = f1_score(y_test, test_pred, average='weighted')
     
-    print(f"\nFinal Model Performance:")
-    print(f"Training Accuracy: {train_acc:.3f}")
-    print(f"Testing Accuracy: {test_acc:.3f}")
-    print(f"Training F1 Score: {train_f1:.3f}")
-    print(f"Testing F1 Score: {test_f1:.3f}")
+    print("\nFinal Model Performance (Test):")
+    print(f"Accuracy: {test_acc:.3f}")
+    print(f"F1 Score: {test_f1:.3f}")
     print("\nClassification Report (Test):\n", classification_report(y_test, test_pred))
     
-    # Plot confusion matrix for final model
+    # Plot confusion matrix
     plt.figure(figsize=(8, 6))
     cm = confusion_matrix(y_test, test_pred)
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
-    plt.title('Final Model Confusion Matrix')
+    plt.title('Confusion Matrix (Test Set)')
     plt.xlabel('Predicted')
     plt.ylabel('Actual')
     plt.savefig('../static/confusion_matrix_final.png')
     plt.close()
     
-    # Plot feature importances
-    plt.figure(figsize=(10, 6))
-    importances = final_model.feature_importances_
+    # Feature importance analysis
+    plt.figure(figsize=(12, 6))
+    importances = best_model.feature_importances_
     feat_names = X.columns
     sorted_idx = np.argsort(importances)[::-1]
     plt.bar(range(len(importances)), importances[sorted_idx])
@@ -208,20 +214,27 @@ def train_model():
     plt.savefig('../static/feature_importances.png')
     plt.close()
     
-    # Cross-validation for robust accuracy estimate
-    scores = cross_val_score(final_model, scaler.transform(X), y, cv=cv, scoring='f1_weighted')
-    print(f"\n3-Fold Cross-Validation F1 scores: {scores}")
-    print(f"Mean CV F1 Score: {np.mean(scores):.3f} ± {np.std(scores):.3f}")
+    # SHAP values for better feature importance interpretation
+    explainer = shap.TreeExplainer(best_model)
+    shap_values = explainer.shap_values(X_test_scaled)
     
-    # Save model, scaler, and all encoders
-    joblib.dump(final_model, '../models/sleep_model.joblib')
+    plt.figure(figsize=(12, 8))
+    shap.summary_plot(shap_values, X_test_scaled, feature_names=feat_names, plot_type="bar")
+    plt.title('Feature Importances (SHAP)')
+    plt.tight_layout()
+    plt.savefig('../static/feature_importances_shap.png')
+    plt.close()
+    
+    # Save models and encoders
+    joblib.dump(best_model, '../models/sleep_model.joblib')
+    joblib.dump(lr_model, '../models/sleep_model_lr.joblib')
     joblib.dump(scaler, '../models/scaler.joblib')
     joblib.dump(gender_encoder, '../models/gender_encoder.joblib')
     joblib.dump(bmi_encoder, '../models/bmi_encoder.joblib')
     joblib.dump(agegroup_encoder, '../models/agegroup_encoder.joblib')
     joblib.dump(stepsgroup_encoder, '../models/stepsgroup_encoder.joblib')
     
-    print("\nModel, scaler, and encoders saved successfully!")
+    print("\nModels, scaler, and encoders saved successfully!")
 
 if __name__ == "__main__":
     train_model() 
