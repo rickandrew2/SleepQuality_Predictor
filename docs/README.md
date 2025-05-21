@@ -1,35 +1,25 @@
-# Sleep Quality Predictor
+# Sleep Quality & Disorder Predictor
 
-A Flask web application that predicts sleep quality based on various lifestyle and health factors.
+A Flask web application that predicts both sleep quality (as a category) and the likelihood/type of sleep disorder based on various lifestyle and health factors, with actionable lifestyle insights.
 
 ## Features
 
-- Predicts sleep quality score based on multiple factors:
-  - Sleep Duration
-  - Physical Activity Level
-  - Stress Level
-  - BMI Category
-  - Heart Rate
-  - Daily Steps
-  - Age
-  - Gender
+- Predicts **sleep quality category** (High, Medium, Low) based on multiple factors
+- Predicts **sleep disorder** (None, Insomnia, Sleep Apnea)
 - Uses machine learning models trained on real sleep health data
-- Provides quality classification (Poor to Outstanding)
+- Provides clear, actionable lifestyle insights based on your results
 - Modern, responsive UI
 - Real-time predictions
 - Visualizes feature importance (traditional and SHAP)
 
-## Sleep Quality Scale
+## Sleep Quality Categories
 
-The model predicts sleep quality on a scale from 4 to 9, where:
-- 4: Poor - Indicates significant sleep issues that need attention
-- 5: Fair - Suggests room for improvement in sleep habits
-- 6: Good - Represents adequate sleep quality
-- 7: Very Good - Shows healthy sleep patterns
-- 8: Excellent - Indicates optimal sleep quality
-- 9: Outstanding - Represents exceptional sleep quality
+The model predicts sleep quality as one of three categories:
+- **High:** Excellent sleep quality. Keep it up!
+- **Medium:** Good, but could improve.
+- **Low:** Needs attention. Try to improve your sleep habits.
 
-This scale is based on the original dataset measurements and represents the actual sleep quality assessments. The model uses a Random Forest Classifier trained on real sleep health data to make predictions.
+This grouping is based on the original dataset's sleep quality scores, but is more robust and user-friendly than a raw numeric score. The model uses a Random Forest Classifier trained on real sleep health data to make predictions.
 
 ### Input Ranges and Categories
 
@@ -43,40 +33,30 @@ The model accepts the following input ranges:
 - Age: 18-80 years
 - Gender: Male, Female
 
+### Feature Engineering
+
+- **Interaction Features:**
+  - Heart Rate × Physical Activity
+  - Daily Steps × Age
+  - Stress Level × Heart Rate
+  - Physical Activity × Sleep Duration
+- **Cluster Feature:**
+  - Behavioral cluster (using KMeans on key lifestyle metrics)
+- **Categorical Encoding:**
+  - Gender, BMI Category, Age Group, Activity Level, Heart Rate Zone
+- **Other:**
+  - Age group, activity level, heart rate zone, sleep quality score (engineered), stress-sleep interaction
+
 ### Model Training and Evaluation
 
-**How the Model Was Trained and Validated**
-
-- **Data Split:** The dataset was split into training (60%), validation (20%), and test (20%) sets using stratified sampling to preserve class distribution.
-- **Data Cleaning:** Duplicate entries were removed and small random noise was added to numeric features to improve robustness. Outliers were clipped to the 1st and 99th percentiles.
-- **Feature Engineering:** Categorical variables were encoded, and age and daily steps were binned into groups. Features that could leak the target variable were excluded.
-- **Baseline Model:** A Logistic Regression model with balanced class weights was trained as a baseline.
-- **Main Model:** A Random Forest Classifier was trained with reduced complexity (limited tree depth, more samples per leaf, balanced class weights).
-- **Hyperparameter Tuning:** 5-fold stratified cross-validation was used on the training set to select the best hyperparameters for the Random Forest.
-- **Validation:** The best model was evaluated on the validation set for model selection.
-- **Final Evaluation:** The selected model was evaluated on the held-out test set to report final performance metrics.
-- **Interpretability:** Feature importance was analyzed using both traditional Random Forest importances and SHAP values.
-
-- **Data Cleaning:**
-  - Removes duplicate entries from the dataset
-  - Adds realistic noise to numeric features for robustness
-  - Handles outliers by clipping extreme values
-- **Feature Engineering:**
-  - Encodes categorical variables
-  - Bins age and daily steps into groups
-  - Removes features that could leak the target variable
-- **Modeling:**
-  - Uses only a Random Forest Classifier for prediction
-  - Reduces model complexity to prevent overfitting (limited tree depth, more samples per leaf)
-  - Implements a robust train/validation/test split (60%/20%/20%)
-  - Uses 5-fold stratified cross-validation for hyperparameter tuning
-- **Performance:**
-  - Achieves realistic accuracy and F1 scores (e.g., ~96% test accuracy, not 100%)
-  - Reports class-wise performance and confusion matrix
-- **Feature Importance:**
-  - Generates and saves both traditional and SHAP feature importance plots for interpretability
-
-Performance may vary depending on the dataset and random seed.
+- **Data Split:** 80% training, 20% test, stratified by class
+- **Data Cleaning:** Duplicate removal, noise addition, outlier handling
+- **Feature Engineering:** As above
+- **Model 1:** Random Forest Classifier for **Sleep Quality Category** (High/Medium/Low)
+- **Model 2:** Random Forest Classifier for **Sleep Disorder** (None, Insomnia, Sleep Apnea)
+- **Hyperparameter Tuning:** 3-fold stratified cross-validation
+- **Final Evaluation:** Metrics reported on held-out test set
+- **Interpretability:** Feature importance via Random Forest and SHAP
 
 ## Setup
 
@@ -91,14 +71,14 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-3. Train the model:
+3. Train the models:
 ```bash
-python train_model.py
+python src/train_model.py
 ```
 
 4. Run the application:
 ```bash
-python app.py
+python src/app.py
 ```
 
 5. Open your browser and navigate to `http://localhost:5000`
@@ -115,17 +95,22 @@ python app.py
    - Age
    - Gender
 
-2. Click "Predict Sleep Quality" to get your sleep quality classification and score
+2. Click "Predict Sleep Quality" to get:
+   - Your sleep quality **category** (High, Medium, Low)
+   - Your predicted sleep disorder (if any)
+   - **Lifestyle Insights** tailored to your sleep quality result
 
 ## Technical Details
 
-- Built with Flask 2.0.1
+- Built with Flask 2.x
 - Uses scikit-learn for machine learning
-- Implements feature scaling and categorical encoding
+- Implements feature scaling, clustering, and categorical encoding
 - Trained on real sleep health and lifestyle dataset
 - Includes data cleaning, exploration, and model training scripts
 - Generates feature importance plots using both Random Forest and SHAP
+- Predicts both sleep quality (as a category) and sleep disorder in a single app
+- UI dynamically updates lifestyle insights based on your predicted sleep quality
 
 ## Note
 
-This application uses a machine learning model trained on real sleep health and lifestyle data. The model takes into account various factors that can affect sleep quality and provides a comprehensive assessment based on these inputs. The code and app have been updated to ensure robust, realistic, and interpretable predictions. 
+This application uses machine learning models trained on real sleep health and lifestyle data. The models take into account various factors that can affect sleep quality and sleep disorders, providing a comprehensive assessment and actionable lifestyle insights. The code and app have been updated to ensure robust, realistic, and interpretable predictions for both sleep quality and sleep disorder. 

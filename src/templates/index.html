@@ -46,6 +46,72 @@
             font-size: 1.1rem;
         }
 
+        .quality-guide {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .guide-title {
+            color: var(--secondary-color);
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .guide-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .guide-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 15px;
+            border-radius: 8px;
+            min-width: 120px;
+            transition: transform 0.2s ease;
+        }
+
+        .guide-item:hover {
+            transform: translateY(-2px);
+        }
+
+        .guide-score {
+            font-weight: bold;
+            margin-right: 8px;
+            font-size: 1.1rem;
+        }
+
+        .guide-label {
+            font-size: 0.9rem;
+        }
+
+        .guide-item.excellent {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            border: 1px solid #28a745;
+        }
+
+        .guide-item.good {
+            background: linear-gradient(135deg, #cce5ff 0%, #b8daff 100%);
+            border: 1px solid #17a2b8;
+        }
+
+        .guide-item.fair {
+            background: linear-gradient(135deg, #fff3cd 0%, #ffeeba 100%);
+            border: 1px solid #ffc107;
+        }
+
+        .guide-item.poor {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            border: 1px solid #dc3545;
+        }
+
         .form-group {
             margin-bottom: 25px;
         }
@@ -131,6 +197,12 @@
             margin-bottom: 15px;
         }
 
+        .result-disorder {
+            font-size: 1.1rem;
+            color: #555;
+            margin-bottom: 15px;
+        }
+
         .result-recommendations {
             font-size: 1.1rem;
             color: #555;
@@ -162,6 +234,24 @@
     <div class="container">
         <h1 class="app-title">ZzzCheck</h1>
         <p class="app-subtitle">Smart Sleep Quality Predictor with Lifestyle Insights</p>
+        
+        <div class="quality-guide">
+            <h4 class="guide-title"><i class="fas fa-info-circle"></i> Sleep Quality Guide</h4>
+            <div class="guide-container">
+                <div class="guide-item excellent">
+                    <span class="guide-score">High</span>
+                    <span class="guide-label">Excellent sleep quality. Keep it up!</span>
+                </div>
+                <div class="guide-item good">
+                    <span class="guide-score">Medium</span>
+                    <span class="guide-label">Good, but could improve.</span>
+                </div>
+                <div class="guide-item poor">
+                    <span class="guide-score">Low</span>
+                    <span class="guide-label">Needs attention. Try to improve your sleep habits.</span>
+                </div>
+            </div>
+        </div>
         
         <form id="predictionForm">
             <div class="row">
@@ -264,8 +354,16 @@
             <div class="text-center">
                 <div class="quality-icon" id="quality-icon"></div>
                 <h3 class="result-title" id="quality"></h3>
-                <p class="result-score" id="score"></p>
+                <div class="quality-info mt-2" style="font-size:1rem;color:#666;">
+                </div>
+                <p class="result-disorder fw-bold" id="disorder" style="font-size:1.2rem;"></p>
+                <div class="disorder-advice mt-2" id="disorder-advice" style="font-size:1rem;"></div>
                 <p class="result-recommendations" id="recommendations"></p>
+                <div class="lifestyle-insights mt-4 p-3" style="background:#f0f7ff;border-radius:12px;border:1px solid #b3d8fd;max-width:500px;margin:20px auto 0 auto;">
+                  <h5 style="color:#2c3e50;"><i class="fas fa-lightbulb"></i> Lifestyle Insights</h5>
+                  <div id="lifestyle-insights-content" style="font-size:1rem;color:#333;">
+                  </div>
+                </div>
             </div>
         </div>
     </div>
@@ -304,8 +402,29 @@
                         
                         $('#quality-icon').html(icon);
                         $('#quality').text('Sleep Quality: ' + response.quality);
-                        $('#score').text('Score: ' + response.score);
-                        $('#recommendations').text('Recommendations: ' + response.recommendations);
+                        
+                        // Set sleep disorder result and advice
+                        let disorderText = '';
+                        let disorderAdvice = '';
+                        if (response.disorder.toLowerCase() === 'none') {
+                            disorderText = 'Predicted Sleep Disorder: None';
+                            $('#disorder').css('color', '#27ae60'); // green
+                            disorderAdvice = '';
+                        } else if (response.disorder.toLowerCase() === 'insomnia') {
+                            disorderText = 'Predicted Sleep Disorder: Insomnia';
+                            $('#disorder').css('color', '#e74c3c'); // red
+                            disorderAdvice = 'Advice: Try to maintain a regular sleep schedule, avoid caffeine late in the day, and create a relaxing bedtime routine.';
+                        } else if (response.disorder.toLowerCase() === 'sleep apnea') {
+                            disorderText = 'Predicted Sleep Disorder: Sleep Apnea';
+                            $('#disorder').css('color', '#e74c3c'); // red
+                            disorderAdvice = 'Advice: Consider consulting a healthcare provider. Sleep apnea can be serious and may require medical attention.';
+                        } else {
+                            disorderText = 'Predicted Sleep Disorder: ' + response.disorder;
+                            $('#disorder').css('color', '#333');
+                            disorderAdvice = '';
+                        }
+                        $('#disorder').text(disorderText);
+                        $('#disorder-advice').text(disorderAdvice);
                         
                         // Smooth scroll to result
                         $('html, body').animate({
@@ -313,6 +432,23 @@
                         }, 500);
                         
                         $('#result').fadeIn();
+
+                        // Set lifestyle insights content based on the quality
+                        let insights = '';
+                        switch(response.quality.toLowerCase()) {
+                            case 'high':
+                                insights = 'You are doing great! Keep maintaining your healthy sleep habits, stay active, and manage stress for continued excellent sleep.';
+                                break;
+                            case 'medium':
+                                insights = 'Your sleep quality is good, but there is room for improvement. Try to keep a consistent bedtime, avoid screens before bed, and manage your daily stress.';
+                                break;
+                            case 'low':
+                                insights = 'Your sleep quality needs attention. Consider increasing your sleep duration, reducing stress, and engaging in regular physical activity. Small changes can make a big difference!';
+                                break;
+                            default:
+                                insights = 'Want to improve your sleep? Try to keep a consistent bedtime, stay active during the day, and manage your stress.';
+                        }
+                        $('#lifestyle-insights-content').text(insights);
                     },
                     error: function(xhr) {
                         alert('Error: ' + xhr.responseJSON.error);

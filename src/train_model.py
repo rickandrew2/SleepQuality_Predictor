@@ -12,6 +12,8 @@ import warnings
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
+import argparse
+from sklearn.cluster import KMeans
 
 warnings.filterwarnings('ignore')
 
@@ -77,13 +79,34 @@ def engineer_features(data):
                                     bins=[0, 60, 70, 80, 90, 200],
                                     labels=['Very Low', 'Low', 'Normal', 'High', 'Very High'])
     
+    # --- New interaction features ---
+    data['HRxActivity'] = data['Heart Rate'] * data['Physical Activity Level']
+    data['StepsxAge'] = data['Daily Steps'] * data['Age']
+    data['StressxHR'] = data['Stress Level'] * data['Heart Rate']
+    data['ActivityxSleep'] = data['Physical Activity Level'] * data['Sleep Duration']
+    
+    # --- KMeans cluster feature ---
+    cluster_features = data[[
+        'Sleep Duration', 'Physical Activity Level', 'Stress Level',
+        'Heart Rate', 'Daily Steps', 'Age']].copy()
+    cluster_features = cluster_features.fillna(cluster_features.mean())
+    cluster_scaler = StandardScaler()
+    cluster_scaled = cluster_scaler.fit_transform(cluster_features)
+    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+    data['Behavior_Cluster'] = kmeans.fit_predict(cluster_scaled)
+    # Save the scaler and kmeans for use in the Flask app
+    joblib.dump(cluster_scaler, os.path.join('models', 'cluster_scaler.joblib'))
+    joblib.dump(kmeans, os.path.join('models', 'cluster_kmeans.joblib'))
+    
     return data
 
-def load_kaggle_dataset():
+def load_kaggle_dataset(dataset_path=None):
     """
     Load the Kaggle dataset
     """
-    data = pd.read_csv('../data/Sleep_health_and_lifestyle_dataset.csv')
+    if dataset_path is None:
+        dataset_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'Sleep_health_and_lifestyle_dataset.csv')
+    data = pd.read_csv(dataset_path)
     return data
 
 def show_feature_importance(rf_model, feature_names, top_n=10):
@@ -178,144 +201,123 @@ def plot_precision_recall_curves(models, X_test, y_test, le):
     plt.legend(loc="lower left")
     plt.show()
 
-def train_model():
-    """
-    Train and evaluate the models with improved handling of class imbalance
-    """
-    # Load and preprocess data
-    data = load_kaggle_dataset()
-    
-    # Clean the dataset
+def train_and_save_models(dataset_path=None):
+    data = load_kaggle_dataset(dataset_path)
     data = clean_dataset(data)
-    
-    # Engineer new features
     data = engineer_features(data)
-    
-    # Prepare features and target
-    X = data.drop(['Sleep Disorder', 'Person ID'], axis=1)  # Remove Person ID
-    y = data['Sleep Disorder']
-    
-    # Encode categorical variables in X
+
+    # Group Quality of Sleep into Low, Medium, High
+    # Example: 3-5 = Low, 6-7 = Medium, 8-10 = High
+    bins = [2, 5, 7, 10]
+    labels = ['Low', 'Medium', 'High']
+    data['Quality_Group'] = pd.cut(data['Quality of Sleep'], bins=bins, labels=labels, right=True, include_lowest=True)
+
+    # Features to use (remove Person ID, Quality of Sleep, Sleep Disorder, Quality_Group, Blood Pressure, Occupation)
+    feature_cols = [col for col in data.columns if col not in ['Person ID', 'Quality of Sleep', 'Sleep Disorder', 'Quality_Group', 'Blood Pressure', 'Occupation']]
+    print('FEATURE COLS:', feature_cols)
+    X = data[feature_cols]
+
+    # Save encoders for all categorical features
+    gender_encoder = LabelEncoder()
+    X['Gender'] = gender_encoder.fit_transform(X['Gender'])
+    joblib.dump(gender_encoder, os.path.join('models', 'gender_encoder.joblib'))
+    if 'Occupation' in X.columns:
+        occupation_encoder = LabelEncoder()
+        X['Occupation'] = occupation_encoder.fit_transform(X['Occupation'])
+        joblib.dump(occupation_encoder, os.path.join('models', 'occupation_encoder.joblib'))
+    bmi_encoder = LabelEncoder()
+    X['BMI Category'] = bmi_encoder.fit_transform(X['BMI Category'])
+    joblib.dump(bmi_encoder, os.path.join('models', 'bmi_encoder.joblib'))
+    agegroup_encoder = LabelEncoder()
+    X['Age_Group'] = agegroup_encoder.fit_transform(X['Age_Group'])
+    joblib.dump(agegroup_encoder, os.path.join('models', 'agegroup_encoder.joblib'))
+    activitylevel_encoder = LabelEncoder()
+    X['Activity_Level'] = activitylevel_encoder.fit_transform(X['Activity_Level'])
+    joblib.dump(activitylevel_encoder, os.path.join('models', 'activitylevel_encoder.joblib'))
+    heartratezone_encoder = LabelEncoder()
+    X['Heart_Rate_Zone'] = heartratezone_encoder.fit_transform(X['Heart_Rate_Zone'])
+    joblib.dump(heartratezone_encoder, os.path.join('models', 'heartratezone_encoder.joblib'))
+
+    # Encode categorical variables in X (again, to ensure all are numeric)
     for col in X.select_dtypes(include=['object', 'category']).columns:
         X[col] = LabelEncoder().fit_transform(X[col])
 
-    # Encode target variable
-    le = LabelEncoder()
-    y = le.fit_transform(y)
-    
-    # Split the data with stratification
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    
-    # Scale the features
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-    
-    # Apply SMOTE to handle class imbalance
-    smote = SMOTE(random_state=42)
-    X_train_balanced, y_train_balanced = smote.fit_resample(X_train_scaled, y_train)
-    
-    # Calculate class weights
-    class_weights = dict(zip(np.unique(y_train), 
-                           len(y_train) / (len(np.unique(y_train)) * np.bincount(y_train))))
-    
-    # Define base models
-    rf_model = RandomForestClassifier(class_weight=class_weights, random_state=42)
-    
-    # Define parameter grids
-    rf_param_grid = {
-        'n_estimators': [100, 200],
-        'max_depth': [10, 15, 20],
-        'min_samples_split': [2, 5],
-        'min_samples_leaf': [1, 2]
-    }
-    
-    # Train Random Forest with GridSearchCV
-    print("\nTraining Random Forest...")
-    rf_grid = GridSearchCV(rf_model, rf_param_grid, cv=5, scoring='f1_weighted', n_jobs=-1)
-    rf_grid.fit(X_train_balanced, y_train_balanced)
-    
-    # Evaluate models
-    results = {}
-    models = {
-        'Random Forest': rf_grid.best_estimator_
-    }
-    
-    for name, model in models.items():
-        pred = model.predict(X_test_scaled)
-        results[name] = {
-            'accuracy': accuracy_score(y_test, pred),
-            'balanced_accuracy': balanced_accuracy_score(y_test, pred),
-            'f1': f1_score(y_test, pred, average='weighted'),
-            'classification_report': classification_report(y_test, pred, target_names=le.classes_),
-            'confusion_matrix': confusion_matrix(y_test, pred)
-        }
-    
-    # Plot ROC curves
-    plot_roc_curves(models, X_test_scaled, y_test, le)
-    
-    # Plot Precision-Recall curves
-    plot_precision_recall_curves(models, X_test_scaled, y_test, le)
-    
-    # Show feature importance for Random Forest
-    show_feature_importance(rf_grid.best_estimator_, X.columns)
-    
-    return results, models, le, scaler
+    # --- Model 1: Predict Quality of Sleep Group (classification) ---
+    y_group = data['Quality_Group']
+    le_group = LabelEncoder()
+    y_group_enc = le_group.fit_transform(y_group)
+    joblib.dump(le_group, os.path.join('models', 'quality_group_label_encoder.joblib'))
 
-def plot_results(results):
-    """
-    Plot model performance metrics
-    """
-    # Create directory for plots if it doesn't exist
-    os.makedirs('plots', exist_ok=True)
-    
-    # Plot accuracy and F1 score
-    metrics = pd.DataFrame({
-        'Model': list(results.keys()),
-        'Accuracy': [r['accuracy'] for r in results.values()],
-        'F1 Score': [r['f1'] for r in results.values()]
-    })
-    
+    X_train_g, X_test_g, y_train_g, y_test_g = train_test_split(X, y_group_enc, test_size=0.2, random_state=42, stratify=y_group_enc)
+    scaler_g = StandardScaler()
+    X_train_g_scaled = scaler_g.fit_transform(X_train_g)
+    X_test_g_scaled = scaler_g.transform(X_test_g)
+
+    smote_g = SMOTE(random_state=42, k_neighbors=1)
+    X_train_g_bal, y_train_g_bal = smote_g.fit_resample(X_train_g_scaled, y_train_g)
+
+    rf_group = RandomForestClassifier(class_weight='balanced', random_state=42)
+    param_grid_g = {'n_estimators': [100, 200], 'max_depth': [10, 15], 'min_samples_split': [2, 5]}
+    grid_g = GridSearchCV(rf_group, param_grid_g, cv=3, scoring='f1_weighted', n_jobs=-1)
+    grid_g.fit(X_train_g_bal, y_train_g_bal)
+
+    y_pred_g = grid_g.predict(X_test_g_scaled)
+    print("\n=== Quality Group Prediction ===")
+    print(f"Accuracy: {accuracy_score(y_test_g, y_pred_g):.3f}")
+    print(f"F1 Score: {f1_score(y_test_g, y_pred_g, average='weighted'):.3f}")
+    print(classification_report(y_test_g, y_pred_g, target_names=le_group.classes_))
+
+    joblib.dump(grid_g.best_estimator_, os.path.join('models', 'quality_group_rf.joblib'))
+    joblib.dump(scaler_g, os.path.join('models', 'quality_group_scaler.joblib'))
+
+    # --- Model 2: Predict Sleep Disorder (classification, with class_weight and SMOTE tweaks) ---
+    y_disorder = data['Sleep Disorder'].fillna('None')
+    le_disorder = LabelEncoder()
+    y_disorder_enc = le_disorder.fit_transform(y_disorder)
+
+    X_train_d, X_test_d, y_train_d, y_test_d = train_test_split(X, y_disorder_enc, test_size=0.2, random_state=42, stratify=y_disorder_enc)
+    scaler_d = StandardScaler()
+    X_train_d_scaled = scaler_d.fit_transform(X_train_d)
+    X_test_d_scaled = scaler_d.transform(X_test_d)
+
+    smote_d = SMOTE(random_state=42, k_neighbors=2)
+    X_train_d_bal, y_train_d_bal = smote_d.fit_resample(X_train_d_scaled, y_train_d)
+
+    rf_disorder = RandomForestClassifier(class_weight='balanced_subsample', random_state=42)
+    param_grid_d = {'n_estimators': [100, 200], 'max_depth': [10, 15], 'min_samples_split': [2, 5]}
+    grid_d = GridSearchCV(rf_disorder, param_grid_d, cv=3, scoring='f1_weighted', n_jobs=-1)
+    grid_d.fit(X_train_d_bal, y_train_d_bal)
+
+    y_pred_d = grid_d.predict(X_test_d_scaled)
+    print("\n=== Sleep Disorder Prediction ===")
+    print(f"Accuracy: {accuracy_score(y_test_d, y_pred_d):.3f}")
+    print(f"F1 Score: {f1_score(y_test_d, y_pred_d, average='weighted'):.3f}")
+    print(classification_report(y_test_d, y_pred_d, target_names=le_disorder.classes_))
+
+    joblib.dump(grid_d.best_estimator_, os.path.join('models', 'sleep_disorder_rf.joblib'))
+    joblib.dump(scaler_d, os.path.join('models', 'disorder_scaler.joblib'))
+    joblib.dump(le_disorder, os.path.join('models', 'disorder_label_encoder.joblib'))
+
+    # --- Feature Importance Plot for Quality Group Model ---
+    importances = grid_g.best_estimator_.feature_importances_
+    indices = np.argsort(importances)[::-1]
+    feature_names = X.columns
     plt.figure(figsize=(10, 6))
-    metrics.set_index('Model').plot(kind='bar')
-    plt.title('Model Performance Comparison')
-    plt.ylabel('Score')
-    plt.xticks(rotation=45)
+    plt.title('Feature Importances for Quality Group Model')
+    plt.bar(range(len(importances)), importances[indices], align='center')
+    plt.xticks(range(len(importances)), [feature_names[i] for i in indices], rotation=45, ha='right')
     plt.tight_layout()
-    plt.savefig('plots/model_performance.png')
+    plt.savefig(os.path.join('plots', 'quality_group_feature_importance.png'))
     plt.close()
-    
-    # Plot confusion matrices
-    for name, result in results.items():
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(result['confusion_matrix'], annot=True, fmt='d', cmap='Blues')
-        plt.title(f'Confusion Matrix - {name}')
-        plt.ylabel('True Label')
-        plt.xlabel('Predicted Label')
-        plt.tight_layout()
-        plt.savefig(f'plots/confusion_matrix_{name.lower().replace(" ", "_")}.png')
-        plt.close()
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Train and save sleep models.')
+    parser.add_argument('--dataset', type=str, default=None, help='Path to the dataset CSV file')
+    args = parser.parse_args()
+
     # Create necessary directories
     os.makedirs('models', exist_ok=True)
     os.makedirs('plots', exist_ok=True)
     
     # Train model and get results
-    results, models, le, scaler = train_model()
-    
-    # Print results
-    for name, result in results.items():
-        print(f"\n{name} Results:")
-        print(f"Accuracy: {result['accuracy']:.3f}")
-        print(f"F1 Score: {result['f1']:.3f}")
-        print("\nClassification Report:")
-        print(result['classification_report'])
-
-    # Save models
-    joblib.dump(models['Random Forest'], '../models/random_forest_model.joblib')
-    joblib.dump(scaler, '../models/scaler.joblib')
-    joblib.dump(le, '../models/label_encoder.joblib')
-
-    # Plot results
-    plot_results(results) 
+    train_and_save_models(args.dataset) 
