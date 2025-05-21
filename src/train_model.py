@@ -1,25 +1,29 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV, StratifiedKFold
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, classification_report, f1_score, confusion_matrix
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+from sklearn.metrics import accuracy_score, f1_score, classification_report, balanced_accuracy_score, confusion_matrix
+from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
+from imblearn.over_sampling import SMOTE
 import joblib
 import os
+import warnings
 import matplotlib.pyplot as plt
 import seaborn as sns
-import shap
-from sklearn.model_selection import KFold
-import warnings
+from tqdm import tqdm
+
 warnings.filterwarnings('ignore')
 
 def clean_dataset(data):
     """
-    Clean the dataset by removing duplicates and adding realistic noise
+    Clean the dataset by removing duplicates, handling missing values, and adding realistic noise
     """
     # Remove exact duplicates
     data = data.drop_duplicates()
+    
+    # Handle missing values in Sleep Disorder column
+    data['Sleep Disorder'] = data['Sleep Disorder'].fillna('None')
     
     # Add small random noise to numeric columns to make data more realistic
     numeric_cols = ['Sleep Duration', 'Physical Activity Level', 'Stress Level', 
@@ -37,204 +41,281 @@ def clean_dataset(data):
     data['Heart Rate'] = data['Heart Rate'].round(0)
     data['Daily Steps'] = data['Daily Steps'].round(0)
     
+    # Remove outliers using IQR method
+    for col in numeric_cols:
+        Q1 = data[col].quantile(0.25)
+        Q3 = data[col].quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+        data = data[(data[col] >= lower_bound) & (data[col] <= upper_bound)]
+    
+    return data
+
+def engineer_features(data):
+    """
+    Create new features to improve model performance
+    """
+    # Create age groups
+    data['Age_Group'] = pd.cut(data['Age'], 
+                              bins=[0, 30, 40, 50, 60, 100],
+                              labels=['<30', '30-40', '40-50', '50-60', '60+'])
+    
+    # Create sleep quality score
+    data['Sleep_Quality_Score'] = data['Sleep Duration'] * data['Quality of Sleep'] / 10
+    
+    # Create stress-sleep interaction
+    data['Stress_Sleep_Interaction'] = data['Stress Level'] * data['Sleep Duration']
+    
+    # Create physical activity categories
+    data['Activity_Level'] = pd.cut(data['Physical Activity Level'],
+                                  bins=[0, 30, 50, 70, 100],
+                                  labels=['Low', 'Moderate', 'High', 'Very High'])
+    
+    # Create heart rate zones
+    data['Heart_Rate_Zone'] = pd.cut(data['Heart Rate'],
+                                    bins=[0, 60, 70, 80, 90, 200],
+                                    labels=['Very Low', 'Low', 'Normal', 'High', 'Very High'])
+    
     return data
 
 def load_kaggle_dataset():
     """
-    Load and preprocess the Sleep Health and Lifestyle Dataset
+    Load the Kaggle dataset
     """
-    try:
-        # Load the dataset
-        data = pd.read_csv('../data/Sleep_health_and_lifestyle_dataset.csv')
+    data = pd.read_csv('../data/Sleep_health_and_lifestyle_dataset.csv')
+    return data
+
+def show_feature_importance(rf_model, feature_names, top_n=10):
+    importances = rf_model.feature_importances_
+    indices = np.argsort(importances)[::-1][:top_n]
+    print("\nTop Feature Importances (Random Forest):")
+    for i in indices:
+        print(f"{feature_names[i]}: {importances[i]:.4f}")
+    # Plot
+    plt.figure(figsize=(8, 5))
+    plt.title("Top Feature Importances (Random Forest)")
+    plt.barh([feature_names[i] for i in indices[::-1]], importances[indices[::-1]])
+    plt.xlabel("Importance")
+    plt.tight_layout()
+    plt.show()
+
+# Function to tune probability thresholds for each class
+def tune_thresholds(model, X_test, y_test, le, thresholds=None):
+    from sklearn.metrics import classification_report
+    proba = model.predict_proba(X_test)
+    n_classes = proba.shape[1]
+    if thresholds is None:
+        thresholds = [0.5] * n_classes
+    preds = np.zeros_like(y_test)
+    for i, row in enumerate(proba):
+        # Assign class with highest probability above its threshold, else default to argmax
+        above = [j for j, p in enumerate(row) if p >= thresholds[j]]
+        if above:
+            preds[i] = above[np.argmax([row[j] for j in above])]
+        else:
+            preds[i] = np.argmax(row)
+    print("\nClassification Report with Custom Thresholds:")
+    print(classification_report(y_test, preds, target_names=le.classes_))
+    return preds
+
+def plot_roc_curves(models, X_test, y_test, le):
+    """
+    Plot ROC curves for each class and model
+    """
+    plt.figure(figsize=(10, 8))
+    colors = ['b', 'g', 'r']
+    
+    for i, (name, model) in enumerate(models.items()):
+        y_score = model.predict_proba(X_test)
         
-        # Clean the dataset
-        data = clean_dataset(data)
+        # Compute ROC curve and ROC area for each class
+        fpr = dict()
+        tpr = dict()
+        roc_auc = dict()
         
-        # Handle outliers for numeric features
-        for col in ['Sleep Duration', 'Physical Activity Level', 'Stress Level', 'Heart Rate', 'Daily Steps', 'Age']:
-            lower = data[col].quantile(0.01)
-            upper = data[col].quantile(0.99)
-            data[col] = data[col].clip(lower, upper)
+        for j in range(len(le.classes_)):
+            fpr[j], tpr[j], _ = roc_curve(y_test == j, y_score[:, j])
+            roc_auc[j] = auc(fpr[j], tpr[j])
+            
+            plt.plot(fpr[j], tpr[j], color=colors[i], alpha=0.3,
+                    label=f'{name} - {le.classes_[j]} (AUC = {roc_auc[j]:.2f})')
+    
+    plt.plot([0, 1], [0, 1], 'k--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curves for Each Class')
+    plt.legend(loc="lower right")
+    plt.show()
+
+def plot_precision_recall_curves(models, X_test, y_test, le):
+    """
+    Plot Precision-Recall curves for each class and model
+    """
+    plt.figure(figsize=(10, 8))
+    colors = ['b', 'g', 'r']
+    
+    for i, (name, model) in enumerate(models.items()):
+        y_score = model.predict_proba(X_test)
         
-        # Use separate encoders for categorical variables
-        gender_encoder = LabelEncoder()
-        bmi_encoder = LabelEncoder()
-        data['Gender'] = gender_encoder.fit_transform(data['Gender'])
-        data['BMI Category'] = bmi_encoder.fit_transform(data['BMI Category'])
+        # Compute Precision-Recall curve for each class
+        precision = dict()
+        recall = dict()
+        avg_precision = dict()
         
-        # Feature engineering: bin Age and Daily Steps
-        data['AgeGroup'] = pd.cut(data['Age'], bins=[0, 30, 40, 50, 60, 100], labels=['<30', '30-40', '40-50', '50-60', '60+'])
-        data['StepsGroup'] = pd.cut(data['Daily Steps'], bins=[0, 4000, 7000, 10000, 20000], labels=['Low', 'Medium', 'High', 'Very High'])
-        agegroup_encoder = LabelEncoder()
-        stepsgroup_encoder = LabelEncoder()
-        data['AgeGroup'] = agegroup_encoder.fit_transform(data['AgeGroup'].astype(str))
-        data['StepsGroup'] = stepsgroup_encoder.fit_transform(data['StepsGroup'].astype(str))
-        
-        # Select features for prediction (removed potentially leaking features)
-        features = [
-            'Sleep Duration',
-            'Physical Activity Level',
-            'Stress Level',
-            'BMI Category',
-            'Heart Rate',
-            'Daily Steps',
-            'Age',
-            'Gender',
-            'AgeGroup',
-            'StepsGroup'
-        ]
-        
-        X = data[features]
-        y = data['Quality of Sleep']
-        
-        return X, y, gender_encoder, bmi_encoder, agegroup_encoder, stepsgroup_encoder
-        
-    except FileNotFoundError:
-        print("Dataset file not found. Please make sure 'Sleep_health_and_lifestyle_dataset.csv' is in the project directory.")
-        return None, None, None, None, None, None
+        for j in range(len(le.classes_)):
+            precision[j], recall[j], _ = precision_recall_curve(y_test == j, y_score[:, j])
+            avg_precision[j] = average_precision_score(y_test == j, y_score[:, j])
+            
+            plt.plot(recall[j], precision[j], color=colors[i], alpha=0.3,
+                    label=f'{name} - {le.classes_[j]} (AP = {avg_precision[j]:.2f})')
+    
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall Curves for Each Class')
+    plt.legend(loc="lower left")
+    plt.show()
 
 def train_model():
+    """
+    Train and evaluate the models with improved handling of class imbalance
+    """
     # Load and preprocess data
-    X, y, gender_encoder, bmi_encoder, agegroup_encoder, stepsgroup_encoder = load_kaggle_dataset()
+    data = load_kaggle_dataset()
     
-    if X is None or y is None:
-        return
+    # Clean the dataset
+    data = clean_dataset(data)
     
-    # Print class distribution in the full dataset
-    print("\nClass distribution in full dataset:")
-    print(y.value_counts(normalize=True))
+    # Engineer new features
+    data = engineer_features(data)
     
-    # Create a more rigorous train/validation/test split
-    X_temp, X_test, y_temp, y_test = train_test_split(
-        X, y, 
-        test_size=0.2,
-        random_state=42,
-        stratify=y
-    )
+    # Prepare features and target
+    X = data.drop(['Sleep Disorder', 'Person ID'], axis=1)  # Remove Person ID
+    y = data['Sleep Disorder']
     
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_temp, y_temp,
-        test_size=0.25,  # 0.25 * 0.8 = 0.2 of total data
-        random_state=42,
-        stratify=y_temp
-    )
+    # Encode categorical variables in X
+    for col in X.select_dtypes(include=['object', 'category']).columns:
+        X[col] = LabelEncoder().fit_transform(X[col])
+
+    # Encode target variable
+    le = LabelEncoder()
+    y = le.fit_transform(y)
     
-    print("\nData split sizes:")
-    print(f"Training set: {len(X_train)} samples")
-    print(f"Validation set: {len(X_val)} samples")
-    print(f"Test set: {len(X_test)} samples")
+    # Split the data with stratification
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
-    # Scale features
+    # Scale the features
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
-    X_val_scaled = scaler.transform(X_val)
     X_test_scaled = scaler.transform(X_test)
     
-    # First try a simple logistic regression model
-    print("\nTraining Logistic Regression model...")
-    lr_model = LogisticRegression(max_iter=1000, class_weight='balanced')
-    lr_model.fit(X_train_scaled, y_train)
+    # Apply SMOTE to handle class imbalance
+    smote = SMOTE(random_state=42)
+    X_train_balanced, y_train_balanced = smote.fit_resample(X_train_scaled, y_train)
     
-    # Evaluate logistic regression
-    lr_val_pred = lr_model.predict(X_val_scaled)
-    lr_val_acc = accuracy_score(y_val, lr_val_pred)
-    lr_val_f1 = f1_score(y_val, lr_val_pred, average='weighted')
+    # Calculate class weights
+    class_weights = dict(zip(np.unique(y_train), 
+                           len(y_train) / (len(np.unique(y_train)) * np.bincount(y_train))))
     
-    print("\nLogistic Regression Performance (Validation):")
-    print(f"Accuracy: {lr_val_acc:.3f}")
-    print(f"F1 Score: {lr_val_f1:.3f}")
-    print("\nClassification Report (Validation):\n", classification_report(y_val, lr_val_pred))
+    # Define base models
+    rf_model = RandomForestClassifier(class_weight=class_weights, random_state=42)
     
-    # Now train Random Forest with reduced complexity
-    print("\nTraining Random Forest model...")
-    param_grid = {
-        'n_estimators': [50, 100],  # Reduced number of trees
-        'max_depth': [3, 5, 7],     # Limited depth to prevent overfitting
-        'min_samples_split': [5, 10],
-        'min_samples_leaf': [2, 4],
-        'class_weight': ['balanced']
+    # Define parameter grids
+    rf_param_grid = {
+        'n_estimators': [100, 200],
+        'max_depth': [10, 15, 20],
+        'min_samples_split': [2, 5],
+        'min_samples_leaf': [1, 2]
     }
     
-    # Use StratifiedKFold for cross-validation
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    # Train Random Forest with GridSearchCV
+    print("\nTraining Random Forest...")
+    rf_grid = GridSearchCV(rf_model, rf_param_grid, cv=5, scoring='f1_weighted', n_jobs=-1)
+    rf_grid.fit(X_train_balanced, y_train_balanced)
     
-    # Grid search with cross-validation
-    grid = GridSearchCV(
-        RandomForestClassifier(random_state=42),
-        param_grid,
-        cv=cv,
-        scoring='f1_weighted',
-        n_jobs=-1
-    )
-    grid.fit(X_train_scaled, y_train)
+    # Evaluate models
+    results = {}
+    models = {
+        'Random Forest': rf_grid.best_estimator_
+    }
     
-    # Get best model
-    best_model = grid.best_estimator_
-    print("\nBest parameters:", grid.best_params_)
+    for name, model in models.items():
+        pred = model.predict(X_test_scaled)
+        results[name] = {
+            'accuracy': accuracy_score(y_test, pred),
+            'balanced_accuracy': balanced_accuracy_score(y_test, pred),
+            'f1': f1_score(y_test, pred, average='weighted'),
+            'classification_report': classification_report(y_test, pred, target_names=le.classes_),
+            'confusion_matrix': confusion_matrix(y_test, pred)
+        }
     
-    # Evaluate on validation set
-    val_pred = best_model.predict(X_val_scaled)
-    val_acc = accuracy_score(y_val, val_pred)
-    val_f1 = f1_score(y_val, val_pred, average='weighted')
+    # Plot ROC curves
+    plot_roc_curves(models, X_test_scaled, y_test, le)
     
-    print("\nRandom Forest Performance (Validation):")
-    print(f"Accuracy: {val_acc:.3f}")
-    print(f"F1 Score: {val_f1:.3f}")
-    print("\nClassification Report (Validation):\n", classification_report(y_val, val_pred))
+    # Plot Precision-Recall curves
+    plot_precision_recall_curves(models, X_test_scaled, y_test, le)
     
-    # Final evaluation on test set
-    test_pred = best_model.predict(X_test_scaled)
-    test_acc = accuracy_score(y_test, test_pred)
-    test_f1 = f1_score(y_test, test_pred, average='weighted')
+    # Show feature importance for Random Forest
+    show_feature_importance(rf_grid.best_estimator_, X.columns)
     
-    print("\nFinal Model Performance (Test):")
-    print(f"Accuracy: {test_acc:.3f}")
-    print(f"F1 Score: {test_f1:.3f}")
-    print("\nClassification Report (Test):\n", classification_report(y_test, test_pred))
+    return results, models, le, scaler
+
+def plot_results(results):
+    """
+    Plot model performance metrics
+    """
+    # Create directory for plots if it doesn't exist
+    os.makedirs('plots', exist_ok=True)
     
-    # Plot confusion matrix
-    plt.figure(figsize=(8, 6))
-    cm = confusion_matrix(y_test, test_pred)
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
-    plt.title('Confusion Matrix (Test Set)')
-    plt.xlabel('Predicted')
-    plt.ylabel('Actual')
-    plt.savefig('../static/confusion_matrix_final.png')
-    plt.close()
+    # Plot accuracy and F1 score
+    metrics = pd.DataFrame({
+        'Model': list(results.keys()),
+        'Accuracy': [r['accuracy'] for r in results.values()],
+        'F1 Score': [r['f1'] for r in results.values()]
+    })
     
-    # Feature importance analysis
-    plt.figure(figsize=(12, 6))
-    importances = best_model.feature_importances_
-    feat_names = X.columns
-    sorted_idx = np.argsort(importances)[::-1]
-    plt.bar(range(len(importances)), importances[sorted_idx])
-    plt.xticks(range(len(importances)), [feat_names[i] for i in sorted_idx], rotation=45, ha='right')
-    plt.title('Feature Importances')
+    plt.figure(figsize=(10, 6))
+    metrics.set_index('Model').plot(kind='bar')
+    plt.title('Model Performance Comparison')
+    plt.ylabel('Score')
+    plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.savefig('../static/feature_importances.png')
+    plt.savefig('plots/model_performance.png')
     plt.close()
     
-    # SHAP values for better feature importance interpretation
-    explainer = shap.TreeExplainer(best_model)
-    shap_values = explainer.shap_values(X_test_scaled)
-    
-    plt.figure(figsize=(12, 8))
-    shap.summary_plot(shap_values, X_test_scaled, feature_names=feat_names, plot_type="bar")
-    plt.title('Feature Importances (SHAP)')
-    plt.tight_layout()
-    plt.savefig('../static/feature_importances_shap.png')
-    plt.close()
-    
-    # Save models and encoders
-    joblib.dump(best_model, '../models/sleep_model.joblib')
-    joblib.dump(lr_model, '../models/sleep_model_lr.joblib')
-    joblib.dump(scaler, '../models/scaler.joblib')
-    joblib.dump(gender_encoder, '../models/gender_encoder.joblib')
-    joblib.dump(bmi_encoder, '../models/bmi_encoder.joblib')
-    joblib.dump(agegroup_encoder, '../models/agegroup_encoder.joblib')
-    joblib.dump(stepsgroup_encoder, '../models/stepsgroup_encoder.joblib')
-    
-    print("\nModels, scaler, and encoders saved successfully!")
+    # Plot confusion matrices
+    for name, result in results.items():
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(result['confusion_matrix'], annot=True, fmt='d', cmap='Blues')
+        plt.title(f'Confusion Matrix - {name}')
+        plt.ylabel('True Label')
+        plt.xlabel('Predicted Label')
+        plt.tight_layout()
+        plt.savefig(f'plots/confusion_matrix_{name.lower().replace(" ", "_")}.png')
+        plt.close()
 
 if __name__ == "__main__":
-    train_model() 
+    # Create necessary directories
+    os.makedirs('models', exist_ok=True)
+    os.makedirs('plots', exist_ok=True)
+    
+    # Train model and get results
+    results, models, le, scaler = train_model()
+    
+    # Print results
+    for name, result in results.items():
+        print(f"\n{name} Results:")
+        print(f"Accuracy: {result['accuracy']:.3f}")
+        print(f"F1 Score: {result['f1']:.3f}")
+        print("\nClassification Report:")
+        print(result['classification_report'])
+
+    # Save models
+    joblib.dump(models['Random Forest'], '../models/random_forest_model.joblib')
+    joblib.dump(scaler, '../models/scaler.joblib')
+    joblib.dump(le, '../models/label_encoder.joblib')
+
+    # Plot results
+    plot_results(results) 

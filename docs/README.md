@@ -66,7 +66,7 @@ The model accepts the following input ranges:
   - Bins age and daily steps into groups
   - Removes features that could leak the target variable
 - **Modeling:**
-  - Uses both Logistic Regression (as a baseline) and Random Forest Classifier (main model)
+  - Uses only a Random Forest Classifier for prediction
   - Reduces model complexity to prevent overfitting (limited tree depth, more samples per leaf)
   - Implements a robust train/validation/test split (60%/20%/20%)
   - Uses 5-fold stratified cross-validation for hyperparameter tuning
